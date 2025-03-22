@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import time
@@ -52,6 +53,7 @@ def init_state():
         "fatigue_threshold": 12,
         "dark_mode": False,
         "swap_mode": [],
+        "compact_mode": True,
     }.items():
         if key not in st.session_state:
             st.session_state[key] = value
@@ -65,11 +67,12 @@ def format_time(seconds):
 
 if st.session_state.game_running:
     st_autorefresh(interval=1000, key="autorefresh")
+
 # -------------------------------
 # HEADER BAR
 # -------------------------------
 st.markdown("## 🏟️ 8U Soccer Game Dashboard")
-header_cols = st.columns([2, 2, 2, 2])
+header_cols = st.columns(4)
 
 with header_cols[0]:
     st.markdown("### ⏱ Game Time")
@@ -102,11 +105,12 @@ with header_cols[3]:
         st.success("✅ All players OK")
 
 st.markdown("---")
+st.session_state.compact_mode = st.toggle("📱 Compact Layout", value=st.session_state.compact_mode)
 
 # -------------------------------
 # GAME CONTROLS
 # -------------------------------
-game_cols = st.columns([2, 2, 2])
+game_cols = st.columns(3)
 with game_cols[0]:
     if not st.session_state.game_running:
         if st.button("▶️ Start Game"):
@@ -115,7 +119,6 @@ with game_cols[0]:
                 st.session_state.game_start_time = now
                 st.session_state.quarter_start_time = now
             else:
-                # Resume logic
                 paused_duration = now - (st.session_state.game_start_time + st.session_state.pause_offset)
                 st.session_state.pause_offset += paused_duration
                 st.session_state.quarter_offset += now - (st.session_state.quarter_start_time + st.session_state.quarter_offset)
@@ -138,7 +141,7 @@ with game_cols[1]:
         for player, start in st.session_state.start_times.items():
             st.session_state.minutes[player] += (now - start) / 60.0
         st.session_state.start_times = {}
-        st.session_state.positions = {}  # clear field
+        st.session_state.positions = {}
         st.session_state.game_running = False
         st.session_state.current_quarter += 1
 
@@ -146,8 +149,49 @@ with game_cols[2]:
     if st.button("↩️ Undo Last Action"):
         if st.session_state.undo_stack:
             exec(st.session_state.undo_stack.pop())
+
 # -------------------------------
-# BUILD FIELD LAYOUT
+# GOAL TRACKER (Add Goal Buttons)
+# -------------------------------
+st.markdown("### 🥅 Goal Tracker")
+goal_cols = st.columns(2)
+
+with goal_cols[0]:
+    if st.button("➕ Add Goal (Us)"):
+        st.session_state.show_goal_scorer_select = True
+        st.session_state.goal_team = "us"
+
+with goal_cols[1]:
+    if st.button("➕ Add Goal (Them)"):
+        st.session_state.score["them"] += 1
+        st.session_state.goal_log.append({
+            "team": "them",
+            "player": None,
+            "quarter": st.session_state.current_quarter,
+            "time": datetime.now().strftime("%H:%M:%S")
+        })
+        st.rerun()
+
+if st.session_state.get("show_goal_scorer_select", False):
+    st.markdown("#### ✅ Confirm Goal for Our Team")
+    current_players = [p for p in st.session_state.positions.values() if p]
+    selected = st.radio("Select the scorer:", current_players, key="goal_scorer")
+    if st.button("✅ Confirm Goal"):
+        st.session_state.score["us"] += 1
+        st.session_state.stats[selected]["Goals"] += 1
+        st.session_state.goal_log.append({
+            "team": "us",
+            "player": selected,
+            "quarter": st.session_state.current_quarter,
+            "time": datetime.now().strftime("%H:%M:%S")
+        })
+        st.session_state.show_goal_scorer_select = False
+        st.rerun()
+
+
+
+# -------------------------------
+# FIELD SETUP & STATS ON FIELD
 # -------------------------------
 def build_field_layout():
     layout = {"Goalie": ["Goalie"]}
@@ -157,12 +201,8 @@ def build_field_layout():
         layout[role] = [f"{role} {i+1}" if count > 1 else role for i in range(count)]
     return layout
 
-# -------------------------------
-# FIELD DISPLAY
-# -------------------------------
 st.markdown("### 🟢 On-Field Lineup")
 layout = build_field_layout()
-
 for line in layout:
     st.markdown(f"#### {line}")
     row = layout[line]
@@ -190,7 +230,6 @@ for line in layout:
                 else:
                     st.session_state.selecting_position = pos
 
-            # Stat icons under field player
             if current:
                 icon_cols = st.columns(len(STAT_CATEGORIES))
                 for j, stat in enumerate(STAT_CATEGORIES):
@@ -202,6 +241,7 @@ for line in layout:
                                 f"st.session_state.stats['{current}']['{stat}'] -= 1"
                             )
                             st.rerun()
+
 # -------------------------------
 # BENCH + ASSIGN / SUBS
 # -------------------------------
@@ -212,7 +252,6 @@ for i, p in enumerate(st.session_state.bench):
         if st.button(p, key=f"bench_{p}"):
             pos = st.session_state.selecting_position
             if pos:
-                # Pre-game assign
                 if not st.session_state.game_running:
                     previous = st.session_state.positions.get(pos)
                     if previous:
@@ -222,7 +261,6 @@ for i, p in enumerate(st.session_state.bench):
                     st.session_state.selecting_position = None
                     st.rerun()
                 else:
-                    # Queue sub
                     st.session_state.sub_queue[pos] = p
                     st.session_state.selecting_position = None
 
@@ -249,18 +287,25 @@ if st.session_state.sub_queue:
         st.session_state.sub_queue = {}
         st.rerun()
 
+
+
 # -------------------------------
 # GOAL LOG
 # -------------------------------
-st.markdown("### 📜 Goal Log")
-for entry in reversed(st.session_state.goal_log):
-    team = "Us" if entry["team"] == "us" else "Them"
-    st.write(f"{entry['time']} - Q{entry['quarter']} - {team} Goal by {entry['player'] or 'N/A'}")
+if st.session_state.compact_mode:
+    with st.expander("📜 Goal Log", expanded=False):
+        for entry in reversed(st.session_state.goal_log):
+            team = "Us" if entry["team"] == "us" else "Them"
+            st.write(f"{entry['time']} - Q{entry['quarter']} - {team} Goal by {entry['player'] or 'N/A'}")
+else:
+    st.markdown("### 📜 Goal Log")
+    for entry in reversed(st.session_state.goal_log):
+        team = "Us" if entry["team"] == "us" else "Them"
+        st.write(f"{entry['time']} - Q{entry['quarter']} - {team} Goal by {entry['player'] or 'N/A'}")
 
 # -------------------------------
 # HIGHLIGHTS
 # -------------------------------
-st.markdown("### 📝 Highlights")
 if st.checkbox("➕ Add Highlight"):
     with st.form("highlight_form"):
         type = st.selectbox("Highlight Type", HIGHLIGHT_TYPES)
@@ -275,8 +320,14 @@ if st.checkbox("➕ Add Highlight"):
             })
             st.rerun()
 
-for h in reversed(st.session_state.highlights):
-    st.write(f"Q{h['quarter']} - {h['time']} - {h['type']}: {h['note']}")
+if st.session_state.compact_mode:
+    with st.expander("📙 Highlights", expanded=False):
+        for h in reversed(st.session_state.highlights):
+            st.write(f"Q{h['quarter']} - {h['time']} - {h['type']}: {h['note']}")
+else:
+    st.markdown("### 📝 Highlights")
+    for h in reversed(st.session_state.highlights):
+        st.write(f"Q{h['quarter']} - {h['time']} - {h['type']}: {h['note']}")
 
 # -------------------------------
 # MINUTES & STATS SUMMARY
@@ -296,7 +347,11 @@ for p in PLAYERS:
     data.append(row)
 
 df = pd.DataFrame(data)
-st.dataframe(df, hide_index=True)
+if st.session_state.compact_mode:
+    with st.expander("📋 Stats Table", expanded=False):
+        st.dataframe(df, hide_index=True)
+else:
+    st.dataframe(df, hide_index=True)
 
 csv = df.to_csv(index=False).encode("utf-8")
 st.download_button("📥 Export CSV", data=csv, file_name="player_stats.csv")
