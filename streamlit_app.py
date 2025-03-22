@@ -1,3 +1,4 @@
+# 8U Soccer Game Tracker App - Full Version with Compact Layout, Goal Logging, Sub Queue, TV-Style Header, Mobile UI Fixes
 
 import streamlit as st
 import pandas as pd
@@ -54,6 +55,8 @@ def init_state():
         "dark_mode": False,
         "swap_mode": [],
         "compact_mode": True,
+        "show_goal_scorer_select": False,
+        "goal_team": "us"
     }.items():
         if key not in st.session_state:
             st.session_state[key] = value
@@ -149,107 +152,6 @@ with game_cols[2]:
     if st.button("↩️ Undo Last Action"):
         if st.session_state.undo_stack:
             exec(st.session_state.undo_stack.pop())
-
-# More code for field layout, bench management, subs, stats, highlights, export to follow...
-
-# -------------------------------
-# FIELD SETUP & STATS ON FIELD
-# -------------------------------
-def build_field_layout():
-    layout = {"Goalie": ["Goalie"]}
-    formation = FORMATIONS[st.session_state.formation]
-    for role in ["Defender", "Midfielder", "Striker"]:
-        count = formation.get(role, 0)
-        layout[role] = [f"{role} {i+1}" if count > 1 else role for i in range(count)]
-    return layout
-
-st.markdown("### 🟢 On-Field Lineup")
-layout = build_field_layout()
-for line in layout:
-    st.markdown(f"#### {line}")
-    row = layout[line]
-    row_cols = st.columns(len(row))
-    for i, pos in enumerate(row):
-        with row_cols[i]:
-            current = st.session_state.positions.get(pos)
-            label = f"{pos}: {current}" if current else f"{pos}: (empty)"
-            is_selected = (pos in st.session_state.swap_mode)
-            button_style = f"**{label}**" if is_selected else label
-
-            if st.button(button_style, key=f"pos_{pos}"):
-                if current:
-                    st.session_state.swap_mode.append(pos)
-                    if len(st.session_state.swap_mode) == 2:
-                        pos1, pos2 = st.session_state.swap_mode
-                        player1 = st.session_state.positions[pos1]
-                        player2 = st.session_state.positions[pos2]
-                        st.session_state.positions[pos1], st.session_state.positions[pos2] = player2, player1
-                        st.session_state.swap_mode = []
-                        st.session_state.undo_stack.append(
-                            f"st.session_state.positions['{pos1}'], st.session_state.positions['{pos2}'] = '{player1}', '{player2}'"
-                        )
-                        st.rerun()
-                else:
-                    st.session_state.selecting_position = pos
-
-            if current:
-                icon_cols = st.columns(len(STAT_CATEGORIES))
-                for j, stat in enumerate(STAT_CATEGORIES):
-                    with icon_cols[j]:
-                        icon = { "Goals": "⚽", "Assists": "🎯", "Blocks": "🛡️", "Saves": "🧤" }[stat]
-                        if st.button(f"{icon} ({st.session_state.stats[current][stat]})", key=f"{current}_{stat}"):
-                            st.session_state.stats[current][stat] += 1
-                            st.session_state.undo_stack.append(
-                                f"st.session_state.stats['{current}']['{stat}'] -= 1"
-                            )
-                            st.rerun()
-
-# -------------------------------
-# BENCH + ASSIGN / SUBS
-# -------------------------------
-st.markdown("### 🪑 Bench")
-bench_cols = st.columns(5)
-for i, p in enumerate(st.session_state.bench):
-    with bench_cols[i % 5]:
-        if st.button(p, key=f"bench_{p}"):
-            pos = st.session_state.selecting_position
-            if pos:
-                if not st.session_state.game_running:
-                    previous = st.session_state.positions.get(pos)
-                    if previous:
-                        st.session_state.bench.append(previous)
-                    st.session_state.positions[pos] = p
-                    st.session_state.bench.remove(p)
-                    st.session_state.selecting_position = None
-                    st.rerun()
-                else:
-                    st.session_state.sub_queue[pos] = p
-                    st.session_state.selecting_position = None
-
-# -------------------------------
-# APPLY SUBSTITUTIONS
-# -------------------------------
-if st.session_state.sub_queue:
-    st.markdown("### 🔁 Substitution Queue")
-    for pos, new_p in st.session_state.sub_queue.items():
-        old_p = st.session_state.positions.get(pos)
-        st.write(f"{old_p} → {new_p}")
-    if st.button("✅ Apply Subs"):
-        now = time.time()
-        for pos, new_p in st.session_state.sub_queue.items():
-            old_p = st.session_state.positions.get(pos)
-            if old_p in st.session_state.start_times:
-                st.session_state.minutes[old_p] += (now - st.session_state.start_times[old_p]) / 60.0
-                del st.session_state.start_times[old_p]
-                st.session_state.bench.append(old_p)
-            if new_p in st.session_state.bench:
-                st.session_state.bench.remove(new_p)
-            st.session_state.positions[pos] = new_p
-            st.session_state.start_times[new_p] = now
-        st.session_state.sub_queue = {}
-        st.rerun()
-
-
 # -------------------------------
 # GOAL TRACKER (Add Goal Buttons)
 # -------------------------------
@@ -287,6 +189,113 @@ if st.session_state.get("show_goal_scorer_select", False):
         })
         st.session_state.show_goal_scorer_select = False
         st.rerun()
+# -------------------------------
+# FIELD LAYOUT & STATS
+# -------------------------------
+def build_field_layout():
+    layout = {"Goalie": ["Goalie"]}
+    formation = FORMATIONS[st.session_state.formation]
+    for role in ["Defender", "Midfielder", "Striker"]:
+        count = formation.get(role, 0)
+        layout[role] = [f"{role} {i+1}" if count > 1 else role for i in range(count)]
+    return layout
+
+def handle_stat_click(player, stat):
+    st.session_state.stats[player][stat] += 1
+    st.session_state.undo_stack.append(
+        f"st.session_state.stats['{player}']['{stat}'] -= 1"
+    )
+    if stat == "Goals":
+        st.session_state.score["us"] += 1
+        st.session_state.goal_log.append({
+            "team": "us",
+            "player": player,
+            "quarter": st.session_state.current_quarter,
+            "time": datetime.now().strftime("%H:%M:%S")
+        })
+
+st.markdown("### 🟢 On-Field Lineup")
+layout = build_field_layout()
+for line in layout:
+    st.markdown(f"#### {line}")
+    row = layout[line]
+    row_cols = st.columns(len(row))
+    for i, pos in enumerate(row):
+        with row_cols[i]:
+            current = st.session_state.positions.get(pos)
+            label = f"{pos}: {current}" if current else f"{pos}: (empty)"
+            is_selected = (pos in st.session_state.swap_mode)
+            button_style = f"**{label}**" if is_selected else label
+
+            if st.button(button_style, key=f"pos_{pos}"):
+                if current:
+                    st.session_state.swap_mode.append(pos)
+                    if len(st.session_state.swap_mode) == 2:
+                        pos1, pos2 = st.session_state.swap_mode
+                        player1 = st.session_state.positions[pos1]
+                        player2 = st.session_state.positions[pos2]
+                        st.session_state.positions[pos1], st.session_state.positions[pos2] = player2, player1
+                        st.session_state.swap_mode = []
+                        st.session_state.undo_stack.append(
+                            f"st.session_state.positions['{pos1}'], st.session_state.positions['{pos2}'] = '{player1}', '{player2}'"
+                        )
+                        st.rerun()
+                else:
+                    st.session_state.selecting_position = pos
+
+            if current:
+                icon_cols = st.columns(len(STAT_CATEGORIES))
+                for j, stat in enumerate(STAT_CATEGORIES):
+                    with icon_cols[j]:
+                        icon = {
+                            "Goals": "⚽", "Assists": "🎯", "Blocks": "🛡️", "Saves": "🧤"
+                        }[stat]
+                        if st.button(f"{icon} ({st.session_state.stats[current][stat]})", key=f"{current}_{stat}"):
+                            handle_stat_click(current, stat)
+                            st.rerun()
+
+# -------------------------------
+# BENCH + SUBSTITUTIONS
+# -------------------------------
+st.markdown("### 🪑 Bench")
+bench_cols = st.columns(5)
+for i, p in enumerate(st.session_state.bench):
+    with bench_cols[i % 5]:
+        if st.button(p, key=f"bench_{p}"):
+            pos = st.session_state.selecting_position
+            if pos:
+                if not st.session_state.game_running:
+                    previous = st.session_state.positions.get(pos)
+                    if previous:
+                        st.session_state.bench.append(previous)
+                    st.session_state.positions[pos] = p
+                    st.session_state.bench.remove(p)
+                    st.session_state.selecting_position = None
+                    st.rerun()
+                else:
+                    st.session_state.sub_queue[pos] = p
+                    st.session_state.selecting_position = None
+
+if st.session_state.sub_queue:
+    st.markdown("### 🔁 Substitution Queue")
+    for pos, new_p in st.session_state.sub_queue.items():
+        old_p = st.session_state.positions.get(pos)
+        st.write(f"{old_p} → {new_p}")
+    if st.button("✅ Apply Subs"):
+        now = time.time()
+        for pos, new_p in st.session_state.sub_queue.items():
+            old_p = st.session_state.positions.get(pos)
+            if old_p in st.session_state.start_times:
+                st.session_state.minutes[old_p] += (now - st.session_state.start_times[old_p]) / 60.0
+                del st.session_state.start_times[old_p]
+                st.session_state.bench.append(old_p)
+            if new_p in st.session_state.bench:
+                st.session_state.bench.remove(new_p)
+            st.session_state.positions[pos] = new_p
+            st.session_state.start_times[new_p] = now
+        st.session_state.sub_queue = {}
+        st.rerun()
+
 
 
 # -------------------------------
