@@ -150,45 +150,7 @@ with game_cols[2]:
         if st.session_state.undo_stack:
             exec(st.session_state.undo_stack.pop())
 
-# -------------------------------
-# GOAL TRACKER (Add Goal Buttons)
-# -------------------------------
-st.markdown("### 🥅 Goal Tracker")
-goal_cols = st.columns(2)
-
-with goal_cols[0]:
-    if st.button("➕ Add Goal (Us)"):
-        st.session_state.show_goal_scorer_select = True
-        st.session_state.goal_team = "us"
-
-with goal_cols[1]:
-    if st.button("➕ Add Goal (Them)"):
-        st.session_state.score["them"] += 1
-        st.session_state.goal_log.append({
-            "team": "them",
-            "player": None,
-            "quarter": st.session_state.current_quarter,
-            "time": datetime.now().strftime("%H:%M:%S")
-        })
-        st.rerun()
-
-if st.session_state.get("show_goal_scorer_select", False):
-    st.markdown("#### ✅ Confirm Goal for Our Team")
-    current_players = [p for p in st.session_state.positions.values() if p]
-    selected = st.radio("Select the scorer:", current_players, key="goal_scorer")
-    if st.button("✅ Confirm Goal"):
-        st.session_state.score["us"] += 1
-        st.session_state.stats[selected]["Goals"] += 1
-        st.session_state.goal_log.append({
-            "team": "us",
-            "player": selected,
-            "quarter": st.session_state.current_quarter,
-            "time": datetime.now().strftime("%H:%M:%S")
-        })
-        st.session_state.show_goal_scorer_select = False
-        st.rerun()
-
-
+# More code for field layout, bench management, subs, stats, highlights, export to follow...
 
 # -------------------------------
 # FIELD SETUP & STATS ON FIELD
@@ -287,6 +249,44 @@ if st.session_state.sub_queue:
         st.session_state.sub_queue = {}
         st.rerun()
 
+
+# -------------------------------
+# GOAL TRACKER (Add Goal Buttons)
+# -------------------------------
+st.markdown("### 🥅 Goal Tracker")
+goal_cols = st.columns(2)
+
+with goal_cols[0]:
+    if st.button("➕ Add Goal (Us)"):
+        st.session_state.show_goal_scorer_select = True
+        st.session_state.goal_team = "us"
+
+with goal_cols[1]:
+    if st.button("➕ Add Goal (Them)"):
+        st.session_state.score["them"] += 1
+        st.session_state.goal_log.append({
+            "team": "them",
+            "player": None,
+            "quarter": st.session_state.current_quarter,
+            "time": datetime.now().strftime("%H:%M:%S")
+        })
+        st.rerun()
+
+if st.session_state.get("show_goal_scorer_select", False):
+    st.markdown("#### ✅ Confirm Goal for Our Team")
+    current_players = [p for p in st.session_state.positions.values() if p]
+    selected = st.radio("Select the scorer:", current_players, key="goal_scorer")
+    if st.button("✅ Confirm Goal"):
+        st.session_state.score["us"] += 1
+        st.session_state.stats[selected]["Goals"] += 1
+        st.session_state.goal_log.append({
+            "team": "us",
+            "player": selected,
+            "quarter": st.session_state.current_quarter,
+            "time": datetime.now().strftime("%H:%M:%S")
+        })
+        st.session_state.show_goal_scorer_select = False
+        st.rerun()
 
 
 # -------------------------------
